@@ -1,4 +1,10 @@
+""""""
+Convolutional Transformer for EEG decoding.
+
+Couples CNN and Transformer in a concise manner for EEG decoding, 
+with reported amazing results.
 """
+
 EEG Conformer 
 
 Convolutional Transformer for EEG decoding
@@ -65,21 +71,21 @@ from torch.backends import cudnn
 # Convolution module
 # use conv to capture local features, instead of postion embedding.
 class PatchEmbedding(nn.Module):
-    def __init__(self, emb_size=40):
+    def __init__(self, emb_size=10):
         # self.patch_size = patch_size
         super().__init__()
 
         self.shallownet = nn.Sequential(
-            nn.Conv2d(306, 40, (1, 25), (1, 1)),
-            nn.Conv2d(40, 40, (1, 22), (1, 1)),
-            nn.BatchNorm2d(40),
+            nn.Conv2d(102, 10, (1, 25), (1, 1)),
+            nn.Conv2d(10, 10, (1, 22), (1, 1)),
+            nn.BatchNorm2d(10),
             nn.ELU(),
             nn.AvgPool2d((1, 75), (1, 15)),  # pooling acts as slicing to obtain 'patch' along the time dimension as in ViT
             nn.Dropout(0.5),
         )
 
         self.projection = nn.Sequential(
-            nn.Conv2d(40, emb_size, (1, 1), stride=(1, 1)),  # transpose, conv could enhance fiting ability slightly
+            nn.Conv2d(10, emb_size, (1, 1), stride=(1, 1)),  # transpose, conv could enhance fiting ability slightly
             Rearrange('b e (h) (w) -> b (h w) e'),
         )
 
@@ -150,7 +156,7 @@ class GELU(nn.Module):
 class TransformerEncoderBlock(nn.Sequential):
     def __init__(self,
                  emb_size,
-                 num_heads=10,
+                 num_heads=2,
                  drop_p=0.5,
                  forward_expansion=4,
                  forward_drop_p=0.5):
@@ -185,10 +191,10 @@ class ClassificationHead(nn.Sequential):
             nn.Linear(emb_size, n_classes)
         )
         self.fc = nn.Sequential(
-            nn.Linear(18360, 72),
+            nn.Linear(3260, 256),
             nn.ELU(),
             nn.Dropout(0.5),
-            nn.Linear(72, 32),
+            nn.Linear(256, 32),
             nn.ELU(),
             nn.Dropout(0.3),
             nn.Linear(32, 4)
@@ -201,7 +207,7 @@ class ClassificationHead(nn.Sequential):
 
 
 class Conformer(nn.Sequential):
-    def __init__(self, emb_size=40, depth=6, n_classes=4, **kwargs):
+    def __init__(self, emb_size=10, depth=6, n_classes=4, **kwargs):
         super().__init__(
 
             PatchEmbedding(emb_size),
@@ -214,7 +220,7 @@ class ExP():
     def __init__(self, nsub):
         super(ExP, self).__init__()
         self.batch_size = 72
-        self.n_epochs = 2000
+        self.n_epochs = 100
         self.c_dim = 4
         self.lr = 0.0002
         self.b1 = 0.5
@@ -274,44 +280,44 @@ class ExP():
 
     def get_source_data(self):
         # Load training data
-        with h5py.File(self.root + '/New.mat', 'r') as matfile:
-            self.allLabel = matfile['Filt_MEG_Data']['trialinfo'][()]
-            self.train_data = matfile['trial_new'][()]
-            self.train_data = np.transpose(self.train_data, (2, 1, 0))
-            self.train_data = np.expand_dims(self.train_data, axis=1)
-            self.allData = self.train_data
-            target_mean = np.mean(self.allData)
-            target_std = np.std(self.allData)
-        # # Extract labels from training data
-        #     self.Filter_train=self.total_data['Filt_MEG_Data']
-        #     self.allLabel = self.Filter['trialinfo']  # Assuming 'labels' is a field in Filt_MEG_Data
-            # shuffle_num = np.random.permutation(len(self.allData))
-            # self.allData = self.allData[shuffle_num, :, :, :]
-            # self.allLabel = self.allLabel[shuffle_num]
+        train_total_data = scipy.io.loadmat(self.root + '/trial_mag5.mat')
+        self.allLabel = train_total_data['original_data']
+        self.train_data = train_total_data['trial_new2']
+        self.train_data = np.transpose(self.train_data, (2, 1, 0))
+        self.train_data = np.expand_dims(self.train_data, axis=1)
+        self.allData = self.train_data
+        target_mean = np.mean(self.allData)
+        target_std = np.std(self.allData)
+    # # Extract labels from training data
+    #     self.Filter_train=self.total_data['Filt_MEG_Data']
+    #     self.allLabel = self.Filter['trialinfo']  # Assuming 'labels' is a field in Filt_MEG_Data
+        # shuffle_num = np.random.permutation(len(self.allData))
+        # self.allData = self.allData[shuffle_num, :, :, :]
+        # self.allLabel = self.allLabel[shuffle_num]
 
-        # Load testing data
-        with h5py.File(self.root + '/New2.mat', 'r') as matfile2:
-            self.te_data = matfile2['trial_new'][()]
-            self.te_data = np.transpose(self.te_data, (2, 1, 0))
-            self.te_data = np.expand_dims(self.te_data, axis=1)
-            self.test_data = self.te_data[0:100]
-            # self.Filter_test=self.te_data['Filt_MEG_Data']
-            self.test_label = matfile2['Filt_MEG_Data']['trialinfo'][()]  # Assuming 'labels' is a field in Filt_MEG_Data
+    # Load testing data
+        test_total_data = scipy.io.loadmat(self.root + '/trial_mag6.mat')
+        self.te_data = test_total_data['trial_new2']
+        self.te_data = np.transpose(self.te_data, (2, 1, 0))
+        self.te_data = np.expand_dims(self.te_data, axis=1)
+        self.test_data = self.te_data[0:100]
+        # self.Filter_test=self.te_data['Filt_MEG_Data']
+        self.test_label = test_total_data['original_data']  # Assuming 'labels' is a field in Filt_MEG_Data
 
-            self.testData = self.test_data
-            self.testLabel = self.test_label
+        self.testData = self.te_data
+        self.testLabel = self.test_label
 
-            # Load validation data
-            self.val_data = self.te_data[100:200]
-            # self.Filter_val=self.val_data['Filt_MEG_Data']
-            self.val_label = matfile2['Filt_MEG_Data']['trialinfo'][()]  # Assuming 'labels' is a field in Filt_MEG_Data
-            self.val_data = np.expand_dims(self.val_data, axis=1)
-            self.valLabel = self.val_label
+        # Load validation data
+        self.val_data = self.te_data[100:200]
+        # self.Filter_val=self.val_data['Filt_MEG_Data']
+        self.val_label = test_total_data['original_data']  # Assuming 'labels' is a field in Filt_MEG_Data
+        self.val_data = np.expand_dims(self.val_data, axis=1)
+        self.valLabel = self.val_label
 
-        # Standardize data
-            self.allData = (self.allData - target_mean) / target_std
-            self.testData = (self.testData - target_mean) / target_std
-            self.val_data = (self.val_data - target_mean) / target_std
+    # Standardize data
+        self.allData = (self.allData - target_mean) / target_std
+        self.testData = (self.testData - target_mean) / target_std
+        self.val_data = (self.val_data - target_mean) / target_std
 
         # Data shape: (trial, conv channel, electrode channel, time samples)
         return self.allData, self.allLabel, self.testData, self.testLabel, self.val_data, self.valLabel
@@ -322,18 +328,23 @@ class ExP():
 
         data=self.get_source_data()
         img, label, test_data, test_label = data[:4]
-        img = np.transpose(img)  # Shape: (7000, 1)
-        label = np.transpose(label)
-        test_data = np.transpose(test_data)
-        test_label = np.transpose(test_label)
-
+        # img = np.transpose(img)  # Shape: (7000, 1)
+        # label = np.transpose(label)
+        # test_data = np.transpose(test_data)
+        # test_label = np.transpose(test_label)
         img = torch.from_numpy(img)
+        img = img.permute(0, 2, 1, 3)
+        # img = img.permute(0, 3, 1, 2)
         label = torch.from_numpy(label - 1)
-
+        # img = img.unsqueeze(2)
+        print("Sizes before creating TensorDataset:")
+        print("img size:", img.size())
+        print("label size:", label.size())
         dataset = torch.utils.data.TensorDataset(img, label)
         self.dataloader = torch.utils.data.DataLoader(dataset=dataset, batch_size=self.batch_size, shuffle=True)
 
         test_data = torch.from_numpy(test_data)
+        test_data = test_data.permute(0, 2, 1, 3)
         test_label = torch.from_numpy(test_label -   1)
         test_dataset = torch.utils.data.TensorDataset(test_data, test_label)
         self.test_dataloader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=self.batch_size, shuffle=True)
@@ -342,7 +353,7 @@ class ExP():
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, betas=(self.b1, self.b2))
 
         test_data = Variable(test_data.type(self.Tensor))
-        test_label = Variable(test_label.type(self.LongTensor))
+        test_label = Variable(test_label.squeeze().type(self.LongTensor))
 
         bestAcc = 0
         averAcc = 0
@@ -352,14 +363,14 @@ class ExP():
         # Train the cnn model
         total_step = len(self.dataloader)
         curr_lr = self.lr
-
+        print(img.shape,label.shape,test_label.shape,test_data.shape)
         for e in range(self.n_epochs):
             # in_epoch = time.time()
             self.model.train()
             for i, (img, label) in enumerate(self.dataloader):
 
                 img = Variable(img.type(self.Tensor))
-                label = Variable(label.type(self.LongTensor))
+                label = Variable(label.squeeze().type(self.LongTensor))
 
                 # data augmentation
                 # aug_data, aug_label = self.interaug(self.allData, self.allLabel)
